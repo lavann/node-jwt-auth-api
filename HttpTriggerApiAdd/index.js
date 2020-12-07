@@ -1,6 +1,11 @@
 const express = require('express');
 const passport = require('passport');
 const auth = require('../auth.json');
+const https = require('https'); //allow the ability to make https calls
+const querystring = require('querystring');
+const { json } = require('body-parser');
+const { Http2ServerResponse } = require('http2');
+const { kMaxLength } = require('buffer');
 
 const createHandler = require('azure-function-express').createHandler;
 
@@ -44,32 +49,98 @@ app.use((req, res, next) => {
 // Expose and protect API endpoint
 app.get('/api/getData', passport.authenticate('oauth-bearer', { session: false }),
     (req, res) => {
-        console.log('Validated claims: ', req.authInfo);
 
-        /*
-           'name': req.authInfo['name'],
-            'issued-by': req.authInfo['iss'],
-            'issued-for': req.authInfo['aud'],
-            'using-scope': req.authInfo['scp']
-            */
-        // Service relies on the name claim.  
-        res.status(200).json(req.authInfo);
+        //Does the incoming contain hasGroups ??
+        //If they do, they are a member of more than 5 security groups and so an internall call will need to be made to the GraphAPI
+        if (req.authInfo["hasgroups"]) {
+            console.log('has more than 5 groups');
+
+            //need to use a client id and secret to obtain the bearer token to the graph API
+            //the app registration needs an applicaiton permission User.Read.All - need to grant admin consent once added
+            //this is required so the api can call the graph endpoint to retrieve the security groups for the user
+            //the user id is obtained through the incoming bearer token          
+            var _hostname = `${auth.authority}`;
+            var _path = `/${auth.tenantID}/oauth2/v2.0/token`;
+
+            var post_data = querystring.stringify({
+                'grant_type': 'client_credentials',
+                'client_id': '', // client ID from app registration need to store as variables
+                'client_secret': '', //client secret - see document on how to create secret need to store as variales
+                'scope': 'https://graph.microsoft.com/.default'
+            });
+
+            var _postOptions = {
+                hostname: _hostname,
+                port: 443,
+                path: _path,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Length': Buffer.byteLength(post_data)
+                }
+            }
+
+            var graphReg = https.request(_postOptions, (resp) => {
+                let data = '';
+                // This may need to be modified based on your server's response.
+                resp.setEncoding('utf8');
+                // A chunk of data has been recieved.
+                resp.on('data', (chunk) => {
+                    data += chunk;
+                });
+                // The whole response has been received. Print out the result.
+                resp.on('end', () => {
+                    var graphRequestResuslt = JSON.parse(data); // we have the token at this point and are now able to call the graph api
+                    // [access_token]
+
+                    var httpGetGraphRequestOptions = {
+                        hostname: 'graph.microsoft.com',
+                        port: 443,
+                        path: `/v1.0/users/${req.authInfo['oid']}/memberOf`,
+                        method: 'GET',
+                        headers: {
+                            Authorization: `Bearer ${graphRequestResuslt['access_token']}`
+                        }
+                    }
+
+                    https.get(httpGetGraphRequestOptions, (resp) => {
+                        let data = '';
+                        // A chunk of data has been recieved.
+                        resp.on('data', (chunk) => {
+                            data += chunk;
+                        });
+                        // The whole response has been received. Print out the result.
+                        resp.on('end', () => {
+                            //1res.status(200).send(JSON.parse(data)['value']);
+                            //ctrl + k then c comment
+                            //ctrl + k then u uncomments
+
+
+                            let securityGroups = [];
+                            securityGroups = JSON.parse(data)['value'];
+                            let adminGroup = securityGroups.find(i => i.id = ''); // this needs to be a variable - object id of the report admin ad group 
+                            res.status(200).send(adminGroup);
+
+                        });
+                    }).on("error", (err) => {
+                        // console.log("Error: " + err.message);
+                        res.status(500).send(err.message);
+                    });
+                });
+            }).on("error", (err) => {
+                res.status(500).send(err)
+            });
+            graphReg.write(post_data);
+            graphReg.end();
+
+
+        } else {
+            console.log('has less than 5 groups');
+            res.status(200).send(req.authInfo['groups']);
+        }
+
+
     }
 );
 
 module.exports = createHandler(app);
-
-
-// module.exports = async function (context, req) {
-//     context.log('JavaScript HTTP trigger function processed a request.');
-
-//     const name = (req.query.name || (req.body && req.body.name));
-//     const responseMessage = name
-//         ? "Hello, " + name + ". This HTTP triggered function executed successfully."
-//         : "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response.";
-
-//     context.res = {
-//         // status: 200, /* Defaults to 200 */
-//         body: responseMessage
-//     };
-// }
