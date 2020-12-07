@@ -64,8 +64,8 @@ app.get('/api/getData', passport.authenticate('oauth-bearer', { session: false }
 
             var post_data = querystring.stringify({
                 'grant_type': 'client_credentials',
-                'client_id': '', // client ID from app registration need to store as variables
-                'client_secret': '', //client secret - see document on how to create secret need to store as variales
+                'client_id': auth.clientID, // client ID from app registration need to store as variables
+                'client_secret': auth.clientSecret, //client secret - see document on how to create secret need to store as variales
                 'scope': 'https://graph.microsoft.com/.default'
             });
 
@@ -116,10 +116,55 @@ app.get('/api/getData', passport.authenticate('oauth-bearer', { session: false }
                             //ctrl + k then u uncomments
 
 
-                            let securityGroups = [];
-                            securityGroups = JSON.parse(data)['value'];
-                            let adminGroup = securityGroups.find(i => i.id = ''); // this needs to be a variable - object id of the report admin ad group 
-                            res.status(200).send(adminGroup);
+                            let tempSecurityGroups = [];
+                            tempSecurityGroups = JSON.parse(data)['value'];
+                            let adminGroup = tempSecurityGroups.find(i => i.id = auth.reportAdminGroup); // this needs to be a variable - object id of the report admin ad group 
+                            /*
+                             {
+                                "@odata.type": "#microsoft.graph.group",
+                                "id": "'ebde25e7-d254-474e-ae33-cd491aa98ebf",
+                                "deletedDateTime": null,
+                                "classification": null,
+                                "createdDateTime": null,
+                                "creationOptions": [],
+                                "description": null,
+                                "displayName": null,
+                                "expirationDateTime": null,
+                                "groupTypes": [],
+                                "isAssignableToRole": null,
+                                "mail": null,
+                                "mailEnabled": null,
+                                "mailNickname": null,
+                                "membershipRule": null,
+                                "membershipRuleProcessingState": null,
+                                "onPremisesDomainName": null,
+                                "onPremisesLastSyncDateTime": null,
+                                "onPremisesNetBiosName": null,
+                                "onPremisesSamAccountName": null,
+                                "onPremisesSecurityIdentifier": null,
+                                "onPremisesSyncEnabled": null,
+                                "preferredDataLocation": null,
+                                "preferredLanguage": null,
+                                "proxyAddresses": [],
+                                "renewedDateTime": null,
+                                "resourceBehaviorOptions": [],
+                                "resourceProvisioningOptions": [],
+                                "securityEnabled": null,
+                                "securityIdentifier": null,
+                                "theme": null,
+                                "visibility": null,
+                                "onPremisesProvisioningErrors": []
+                            }
+                            the returned payload has an extra quote "id": "'ebde25e7-d254-474e-ae33-cd491aa98ebf",
+                            need to remove the quote
+                            */
+
+                            //we don't want to return the whole object - as the response from AAD if a user is in less than 5 groups is to return an array of groups
+                            //we will do the same so that we are returning a consisent message
+                            let securityGroup = [];
+
+                            securityGroup.push(adminGroup['id']);
+                            res.status(200).send(securityGroup);
 
                         });
                     }).on("error", (err) => {
